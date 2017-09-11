@@ -24,4 +24,4 @@ from fix_yahoo_finance import pdr_override
 
 pdr_override()
 data = pdr.get_data_yahoo("AMS.MC", start="2015-01-01", end="2015-12-31")
-data.to_csv("AMS.MC-2015.csv")
+data.to_csv("data/AMS.MC-2015.csv")
