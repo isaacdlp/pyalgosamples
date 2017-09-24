@@ -22,3 +22,6 @@
 from pyalgoext import download
 
 download.quandl_bitcoin("BCHARTS/KRAKENUSD", "data/BTCUSD-KRAKEN.csv")
+download.quandl_bitcoin("BCHARTS/COINBASEUSD", "data/BTCUSD-COINBASE.csv")
+download.quandl_bitcoin("BCHARTS/BITSTAMPUSD", "data/BTCUSD-BITSTAMP.csv")
+download.quandl_bitcoin("BCHARTS/ITBITUSD", "data/BTCUSD-ITBIT.csv")

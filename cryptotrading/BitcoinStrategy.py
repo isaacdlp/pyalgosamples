@@ -1,6 +1,7 @@
-# PyAlgoTrade
+# PyAlgoSamples
+# Examples using the PyAlgoTrade Library
 #
-# Copyright 2011-2015 Gabriel Martin Becedillas Ruiz
+# Copyright 2015-2017 Isaac de la Pena
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,44 +16,23 @@
 # limitations under the License.
 
 """
-.. moduleauthor:: Gabriel Martin Becedillas Ruiz <gabriel.becedillas@gmail.com>
+.. moduleauthor:: Isaac de la Pena <isaacdlp@agoraeafi.com>
 """
 
-SCENARIO = 1
+SCENARIO = 3
 
+FIXED = False
 TRAILING = False
 
 from pyalgotrade import strategy, plotter, dataseries
 from pyalgotrade.technical import ma, macd, cross
 from pyalgotrade.stratanalyzer import drawdown, returns, sharpe
 from pyalgotrade.utils import stats
-import datetime
 import math
 from pyalgotrade import broker
 from pyalgotrade.broker import backtesting
 from pyalgotrade.barfeed import yahoofeed
 from pyalgotrade.talibext import indicator
-
-
-class SessionOpenStopOrder(backtesting.StopOrder):
-    def __init__(self, action, position, pricePer, quantity, instrumentTraits):
-        if action == broker.Order.Action.SELL:
-            pricePer = 1 - pricePer
-        else:
-            pricePer = 1 + pricePer
-        self._dateTime = position.getStrategy().getCurrentDateTime()
-        self._pricePer = pricePer
-        self._position = position
-
-        backtesting.StopOrder.__init__(self, action, position.getInstrument(), position.getLastPrice() * pricePer, quantity, instrumentTraits)
-        position.getStrategy().getBarsProcessedEvent().subscribe(self.__onBars)
-
-    def __onBars(self, strategy, bars):
-        instrument = self._position.getInstrument()
-        if self._dateTime.date != bars.getDateTime().date:
-            if instrument in bars:
-                self._StopOrder__stopPrice = bars[instrument].getPrice() * self._pricePer
-                self._dateTime = bars.getDateTime()
 
 
 class TrailingStopOrder(backtesting.StopOrder):
@@ -78,13 +58,14 @@ class TrailingStopOrder(backtesting.StopOrder):
 
 
 class MyBenchmark(strategy.BacktestingStrategy):
-    def __init__(self, feed, stopPer, stopTrailing, delay):
+    def __init__(self, feed, stopPer, stopTrailing, stopFixed, delay):
         myBroker = backtesting.Broker(1000000, feed, backtesting.TradePercentage(0.002))
         myBroker.setAllowNegativeCash(True)
         myBroker.getFillStrategy().setVolumeLimit(None)
 
         super(MyBenchmark, self).__init__(feed, myBroker)
 
+        self._leverage = 2
         self._delay = delay
         self._feed = feed
         self._session = 0
@@ -97,6 +78,7 @@ class MyBenchmark(strategy.BacktestingStrategy):
 
         self._stopPer = stopPer
         self._stopTrailing = stopTrailing
+        self._stopFixed = stopFixed
 
         self.setUseAdjustedValues(True)
 
@@ -109,7 +91,7 @@ class MyBenchmark(strategy.BacktestingStrategy):
                 stopOrder.setGoodTillCanceled(True)
                 position._Position__submitAndRegisterOrder(stopOrder)
                 position._Position__exitOrder = stopOrder
-            else:
+            elif self._stopFixed:
                 position.exitStop(order.getExecutionInfo().getPrice() * (1 - self._stopPer), True)
         else:
             self.logOp("VENTA CORTA", order)
@@ -166,7 +148,7 @@ class MyBenchmark(strategy.BacktestingStrategy):
             if perInstrument > cash:
                 perInstrument = cash
             perInstrument *= (1 - self._liquidity)
-            amount = int(perInstrument / bar.getPrice())
+            amount = int(perInstrument / bar.getPrice()) * self._leverage
             if amount > 0:
                 if (action == broker.Order.Action.BUY):
                     self._posLong[instrument] = self.enterLong(instrument, amount, True)
@@ -197,18 +179,14 @@ class MyBenchmark(strategy.BacktestingStrategy):
 
 
 class MyBasicStrategy(MyBenchmark):
-    def __init__(self, feed, stopPer, stopTrailing, smaShort, smaLong):
-        MyBenchmark.__init__(self, feed, stopPer, stopTrailing, smaLong)
+    def __init__(self, feed, stopPer, stopTrailing, stopFixed, smaShort, smaLong):
+        MyBenchmark.__init__(self, feed, stopPer, stopTrailing, stopFixed, smaLong)
 
         self._smaShort = {}
         self._smaLong = {}
-        self._macdPrice = {}
-        self._macdVol = {}
         for instrument in feed.getRegisteredInstruments():
             self._smaShort[instrument] = ma.SMA(self._feed[instrument].getPriceDataSeries(), smaShort)
             self._smaLong[instrument] = ma.SMA(self._feed[instrument].getPriceDataSeries(), smaLong)
-            self._macdPrice[instrument] = macd.MACD(self._feed[instrument].getPriceDataSeries(), 12, 26, 9)
-            self._macdVol[instrument] = macd.MACD(self._feed[instrument].getVolumeDataSeries(), 12, 26, 9)
 
     def getSMAShorts(self):
         return self._smaShort
@@ -222,27 +200,18 @@ class MyBasicStrategy(MyBenchmark):
             if not self._smaLong[instrument] or self._smaLong[instrument][-1] is None:
                 return
 
-            pri = self._macdPrice[instrument]
-            vol = self._macdVol[instrument]
             if instrument in self._posLong:
                 if cross.cross_below(self._smaShort[instrument], self._smaLong[instrument]):
                     position = self._posLong[instrument]
                     self.prepareExit(position)
 
-            elif instrument in self._posShort:
-                if cross.cross_above(pri.getSignal(), pri):
-                    position = self._posShort[instrument]
-                    self.prepareExit(position)
-
             if cross.cross_above(self._smaShort[instrument], self._smaLong[instrument]):
                 self.prepareEnter(instrument, bars)
-            elif cross.cross_below(pri.getSignal(), pri) and cross.cross_above(vol.getSignal(), vol):
-                self.prepareEnter(instrument, bars, broker.Order.Action.SELL_SHORT)
 
 
 class MyTaLibStrategy(MyBasicStrategy):
-    def __init__(self, feed, stopPer, stopTrailing, smaShort, smaLong, aroonPeriod):
-        MyBasicStrategy.__init__(self, feed, stopPer, stopTrailing, smaShort, smaLong)
+    def __init__(self, feed, stopPer, stopTrailing, stopFixed, smaShort, smaLong, aroonPeriod):
+        MyBasicStrategy.__init__(self, feed, stopPer, stopTrailing, stopFixed, smaShort, smaLong)
 
         self._aroon = {}
         self._aroonPeriod = aroonPeriod
@@ -256,34 +225,25 @@ class MyTaLibStrategy(MyBasicStrategy):
                 return
 
             barDs = self.getFeed().getDataSeries(instrument)
-            #closeDs = barDs.getCloseDataSeries()
             aroon = indicator.AROONOSC(barDs, self._aroonPeriod + 1, self._aroonPeriod)
             self._aroon[instrument].appendWithDateTime(self.getCurrentDateTime(), aroon[-1])
 
-            pri = self._macdPrice[instrument]
-            vol = self._macdVol[instrument]
             if instrument in self._posLong:
-                if cross.cross_below(self._smaShort[instrument], self._smaLong[instrument]) and aroon[-1] < -25:
+                if cross.cross_below(self._smaShort[instrument], self._smaLong[instrument]) and aroon[-1] < -50:
                     position = self._posLong[instrument]
                     self.prepareExit(position)
-            elif instrument in self._posShort:
-                if cross.cross_above(pri.getSignal(), pri) and aroon[-1] > 25:
-                    position = self._posShort[instrument]
-                    self.prepareExit(position)
 
-            if cross.cross_above(self._smaShort[instrument], self._smaLong[instrument]) and aroon[-1] > 25:
+            if cross.cross_above(self._smaShort[instrument], self._smaLong[instrument]) and aroon[-1] > 50:
                 self.prepareEnter(instrument, bars)
-            elif cross.cross_below(pri.getSignal(), pri) and cross.cross_above(vol.getSignal(), vol) and aroon[-1] < -25:
-                    self.prepareEnter(instrument, bars, broker.Order.Action.SELL_SHORT)
 
 
 if __name__ == "__main__":
 
     stopPer = 0.15
 
-    smaShort = 2
-    smaLong = 8
-    aroonPeriod = 4
+    smaShort = 3
+    smaLong = 9
+    aroonPeriod = 3
 
     instrument = 'BTCUSD-COINBASE'
 
@@ -295,11 +255,11 @@ if __name__ == "__main__":
 
     myStrategy = None
     if SCENARIO == 2:
-        myStrategy = MyBasicStrategy(feed, stopPer, TRAILING, smaShort, smaLong)
+        myStrategy = MyBasicStrategy(feed, stopPer, TRAILING, FIXED, smaShort, smaLong)
     elif SCENARIO == 3:
-        myStrategy = MyTaLibStrategy(feed, stopPer, TRAILING, smaShort, smaLong, aroonPeriod)
+        myStrategy = MyTaLibStrategy(feed, stopPer, TRAILING, FIXED, smaShort, smaLong, aroonPeriod)
     else:
-        myStrategy = MyBenchmark(feed, stopPer, TRAILING, smaLong)
+        myStrategy = MyBenchmark(feed, stopPer, TRAILING, FIXED, smaLong)
 
     # Strategy
     returnsAnalyzer = returns.Returns()
@@ -323,9 +283,6 @@ if __name__ == "__main__":
         subPlot = plt.getOrCreateSubplot("SMA")
         subPlot.addDataSeries("SMALong", myStrategy._smaLong[instrument])
         subPlot.addDataSeries("SMAShort", myStrategy._smaShort[instrument])
-        subPlot = plt.getOrCreateSubplot("MACD")
-        subPlot.addDataSeries("MACDPrice", myStrategy._macdPrice[instrument])
-        subPlot.addDataSeries("MACDVolume", myStrategy._macdVol[instrument])
 
     capStart = myStrategy.getBroker().getEquity()
     myStrategy.info("CAPITAL INICIAL: $%.4f" % capStart)
@@ -342,7 +299,7 @@ if __name__ == "__main__":
     myStrategy.info("Rentabilidad: %.4f%%" % (100 * (capEnd - capStart) / capStart))
     myStrategy.info("Rentabilidad Anualizada: %.4f%%" % (100 * (math.pow((capEnd / capStart), (365.0 / ((myStrategy.endDateTime - myStrategy.startDateTime).days))) - 1)))
     myStrategy.info("Volatilidad Anualizada: %.4f%%" % (100 * stats.stddev(allRet, 1) * math.sqrt(252)))
-    myStrategy.info("Ratio de Sharpe Anualizado: %.4f" % (100 * sharpeAnalyzer.getSharpeRatio(0.0036, True)))
+    myStrategy.info("Ratio de Sharpe Anualizado: %.4f" % (sharpeAnalyzer.getSharpeRatio(0.0036, True)))
 
     myStrategy.info("DrawDown Maximo: %.4f%%" % (100 * drawDownAnalyzer.getMaxDrawDown()))
     myStrategy.info("DrawDown Mas Largo: %s dias" % (drawDownAnalyzer.getLongestDrawDownDuration().days))
