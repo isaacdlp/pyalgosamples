@@ -6,7 +6,7 @@ import pandas as pd
 def quandl_bitcoin(instrument, store):
     df = quandl.get(instrument, returns="pandas")
     df.to_csv(store,
-        columns=["Open", "High", "Low", "Close", "Volume (BTC)", "Close"],
+        columns=["Open", "High", "Low", "Close", "Volume (USD)", "Close"],
         header=["Open", "High", "Low", "Close", "Volume", "Adj Close"]
     )
 
