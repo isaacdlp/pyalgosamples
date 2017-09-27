@@ -19,6 +19,7 @@
 .. moduleauthor:: Isaac de la Pena <isaacdlp@agoraeafi.com>
 """
 
+
 import csv
 import datetime
 from lxml import html
