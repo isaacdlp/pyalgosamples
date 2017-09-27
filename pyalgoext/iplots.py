@@ -1,6 +1,9 @@
 from pyalgotrade import plotter
 from plotly.offline import plot as do_plot
 import plotly.tools as tls
+import os
+import re
+import webbrowser
 
 def series_plot(self, mplSubplot, dateTimes, color):
    values = []
@@ -48,3 +51,21 @@ def plot(fig, resize=True, strip_style=False, strip_notes=False, filename='temp-
 
     do_plot(plotly_fig, filename=filename)
 
+def augment(filename):
+    dir = os.path.dirname(__file__)
+    with open(dir + "/iplots_1.js", "r") as f:
+        script_1 = f.read()
+    with open(dir + "/iplots_2.js", "r") as f:
+        script_2 = f.read()
+    with open(filename, 'r') as f:
+        text = f.read()
+    m = re.findall("Plotly.newPlot\(\"([0-9a-zA-Z\-]*)\",", text)
+    if len(m) == 0:
+        return
+    text = text.replace('{"linkText": "Export to plot.ly", "showLink": true}', script_1)
+    script_2 = script_2.replace("[PLOTID]", m[0])
+    text = text.replace("</body>", "<script type=\"text/javascript\">%s</script></body>" % script_2)
+    with open(filename, 'w') as f:
+        f.write(text)
+    url = 'file://' + os.path.abspath(filename)
+    webbrowser.open(url)
