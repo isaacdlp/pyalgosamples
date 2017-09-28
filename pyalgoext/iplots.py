@@ -58,7 +58,7 @@ def subplot_getSeries(self, name, defaultClass=plotter.LineMarker):
 plotter.Subplot.plot = subplot_plot
 plotter.Subplot.getSeries = subplot_getSeries
 
-def plot(fig, resize=True, strip_style=False, strip_notes=False, filename='temp-plot.html'):
+def plot(fig, resize=True, strip_style=False, strip_notes=False, filename='temp-plot.html', auto_open=True):
     plotly_fig = tls.mpl_to_plotly(fig, resize=resize, strip_style=strip_style)
 
     fl = plotly_fig['layout']
@@ -71,7 +71,7 @@ def plot(fig, resize=True, strip_style=False, strip_notes=False, filename='temp-
         if key.startswith("xaxis"):
             value['hoverformat'] = '%Y-%m-%d'
 
-    do_plot(plotly_fig, filename=filename)
+    do_plot(plotly_fig, filename=filename, auto_open=auto_open)
 
 def augment(filename):
     dir = os.path.dirname(__file__)
